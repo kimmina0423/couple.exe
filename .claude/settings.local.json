@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command node -ErrorAction SilentlyContinue)",
+      "PowerShell(node --version 2>$null)",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\" run dev --prefix \"c:\\\\Users\\\\kimmi\\\\OneDrive\\\\���� ȭ��\\\\couple test\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;\" + $env:PATH; cd \"c:\\\\Users\\\\kimmi\\\\OneDrive\\\\바탕 화면\\\\couple test\"; npm run dev)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;\" + $env:PATH; cd \"c:\\\\Users\\\\kimmi\\\\OneDrive\\\\바탕 화면\\\\couple test\"; & \"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\" run dev)",
+      "PowerShell([System.Environment]::SetEnvironmentVariable\\(\"PATH\", [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\) + \";C:\\\\Program Files\\\\nodejs\", \"User\"\\))",
+      "Bash(ls -la \"C:\\\\Users\\\\kimmi\\\\Downloads\\\\couple design\")",
+      "Read(//c/Users/kimmi/Downloads/couple design/**)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git config *)"
+    ]
+  }
+}

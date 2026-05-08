@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   SOFT Y2K · STICKER BOOK TOKENS
+   ============================================ */
+:root {
+  --p-50:  #fffafc;
+  --p-100: #fff0f6;
+  --p-200: #ffe2ee;
+  --p-300: #ffcfe1;
+  --p-400: #ffb6d0;
+  --p-500: #ff9ec5;
+  --p-600: #ee83b1;
+  --p-700: #c66293;
+
+  --blue:    #c8dcff;
+  --blue-2:  #a8c4f5;
+  --mint:    #d4f0e2;
+  --lavender:#e7d8ff;
+  --cream:   #fffbf5;
+
+  --ink:   #6b4566;
+  --ink-2: #8e6589;
+  --halo:  #ffffff;
+
+  --sticker-shadow:
+    0 0 0 3px var(--halo),
+    0 0 0 4.5px var(--p-500),
+    0 6px 0 -1px rgba(238,131,177,.25),
+    0 10px 24px -8px rgba(238,131,177,.45);
+
+  --soft-shadow: 0 6px 16px -4px rgba(238,131,177,.35);
+
+  --font-cursive: "Pacifico", cursive;
+  --font-script:  "Caveat", cursive;
+  --font-round:   "Gaegu", "DotGothic16", system-ui, sans-serif;
+  --font-deco:    "Yeon Sung", "Gaegu", serif;
+  --font-pixel:   "DotGothic16", monospace;
+  --font-screen:  "VT323", "DotGothic16", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-round);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 50% -10%, #ffe9f1 0%, transparent 60%),
+    radial-gradient(800px 600px at 90% 100%, #f3e6ff 0%, transparent 50%),
+    radial-gradient(700px 500px at 0% 80%, #d8ecff 0%, transparent 55%),
+    #fff5fa;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* notebook grid */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,158,197,.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,158,197,.13) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  z-index: 0;
+}
+/* dot overlay */
+body::after {
+  content: "";
+  position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(255,158,197,.18) 1px, transparent 1.4px);
+  background-size: 14px 14px;
+  pointer-events: none;
+  z-index: 0;
+  mix-blend-mode: multiply;
+}
+
+img { image-rendering: pixelated; }
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: var(--p-100); }
+::-webkit-scrollbar-thumb {
+  background: var(--p-400);
+  border: 2px solid var(--p-100);
+  border-radius: 99px;
+}
+
+/* ============================================
+   STICKER PRIMITIVES
+   ============================================ */
+.sticker {
+  background: var(--cream);
+  border: 2px solid var(--p-500);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 4px var(--halo),
+    0 0 0 5.5px var(--p-500),
+    0 8px 14px -6px rgba(238,131,177,.5);
+  position: relative;
+}
+
+.deco-title {
+  font-family: var(--font-cursive);
+  color: var(--p-600);
+  -webkit-text-stroke: 1.5px #fff;
+  text-shadow: 2px 2px 0 #fff, 3px 3px 0 var(--p-500);
+  line-height: 1;
+}
+
+/* WIN98 SOFTENED */
+.win {
+  background: #fce7f0;
+  border: 2px solid var(--p-500);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 3px var(--halo),
+    0 0 0 4.5px var(--p-500),
+    0 12px 24px -10px rgba(238,131,177,.45);
+  padding: 3px;
+  overflow: hidden;
+}
+.win-title {
+  background: linear-gradient(90deg, #ffd0e2, #ffb6d0);
+  color: var(--p-700);
+  padding: 6px 8px;
+  font-family: var(--font-round);
+  font-weight: 700;
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1.5px solid var(--p-500);
+  border-radius: 8px 8px 0 0;
+  text-shadow: 1px 1px 0 #fff;
+}
+.win-buttons { display: flex; gap: 4px; }
+.win-btn {
+  width: 22px; height: 18px;
+  background: #fff;
+  border: 1.5px solid var(--p-500);
+  border-radius: 6px;
+  color: var(--p-700);
+  font-size: 11px;
+  font-family: var(--font-round); font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; line-height: 1;
+}
+.win-menu {
+  background: #fff5fa;
+  border-bottom: 1px solid var(--p-300);
+  padding: 3px 8px;
+  font-family: var(--font-round);
+  font-size: 12px;
+  display: flex; gap: 14px;
+  color: var(--ink);
+}
+.win-body {
+  background: #fff;
+  border: 1.5px solid var(--p-300);
+  border-radius: 0 0 8px 8px;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes float-y {
+  0%,100% { transform: translateY(0) rotate(var(--rot,0deg)); }
+  50%     { transform: translateY(-6px) rotate(var(--rot,0deg)); }
+}
+@keyframes wiggle {
+  0%,100% { transform: rotate(-3deg); }
+  50%     { transform: rotate(3deg); }
+}
+@keyframes heartbeat {
+  0%,100% { transform: scale(1); }
+  20%,60% { transform: scale(1.18); }
+  40%,80% { transform: scale(1); }
+}
+@keyframes marquee {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(-100%); }
+}
+@keyframes pop {
+  0%   { transform: scale(.5); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes twinkle {
+  0%,100% { opacity: .3; transform: scale(.8); }
+  50%     { opacity: 1;  transform: scale(1.1); }
+}
+
+/* utilities */
+.cursive { font-family: var(--font-cursive); }
+.script  { font-family: var(--font-script);  }
+.deco    { font-family: var(--font-deco);    }
+.pixel   { font-family: var(--font-pixel);   }
+.screen  { font-family: var(--font-screen);  }
