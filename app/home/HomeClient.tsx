@@ -70,7 +70,7 @@ export default function HomeClient({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "relative" }}>
           <div>
             <div className="cursive" style={{ fontSize: 22, color: "var(--p-600)", lineHeight: 1, textShadow: "1.5px 1.5px 0 #fff" }}>
-              today's us
+              today&apos;s us
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>오늘의 우리 ♡</div>
           </div>
@@ -113,7 +113,7 @@ export default function HomeClient({
       {/* 퀵 액션 카드 2개 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
         <PaperCard color="#fff5fa" accent="#ffb6d0">
-          <div className="cursive" style={{ color: "var(--p-600)", fontSize: 15 }}>today's quest</div>
+          <div className="cursive" style={{ color: "var(--p-600)", fontSize: 15 }}>today&apos;s quest</div>
           <div style={{ fontSize: 13, fontWeight: 700, margin: "6px 0", lineHeight: 1.4 }}>
             {bothWrote ? "퀘스트가\n기다려요" : "둘 다 일기\n먼저 써요"}
           </div>
@@ -183,7 +183,7 @@ export default function HomeClient({
         fontFamily: "var(--font-cursive)", fontSize: 13, whiteSpace: "nowrap",
       }}>
         <div style={{ display: "inline-block", animation: "marquee 22s linear infinite" }}>
-          ✿ made with love ✿ couple.exe ✿ don't fight, quest it ✿ AI reads ur diary so u don't have to ✿ y2k 4ever ✿ stay soft ✿
+          {"✿ made with love ✿ couple.exe ✿ don't fight, quest it ✿ AI reads ur diary so u don't have to ✿ y2k 4ever ✿ stay soft ✿"}
         </div>
       </div>
     </div>
