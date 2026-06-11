@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { analyzeCoupleDiary } from '@/lib/analyzer'
+import { getCouplePatterns } from '@/lib/pattern_learner'
 import { syncMonsters } from '@/lib/monster'
 import QuestButton from './QuestButton'
 import MonsterCard from './MonsterCard'
@@ -16,32 +17,51 @@ const RISK_CONFIG = {
   RED:    { label: '오늘 서로 힘들었던 것 같아요',   bg: 'var(--p-200)', border: 'var(--p-500)', text: 'var(--p-700)', icon: '⚠' },
 }
 
-const HORSEMEN_LABELS = {
-  criticism: '비난', defensiveness: '방어', contempt: '경멸', stonewalling: '담쌓기',
-}
-
 const cardStyle = {
   border: '1.5px solid var(--p-500)', borderRadius: 16,
   boxShadow: '0 0 0 3px #fff, 0 0 0 4.5px var(--p-500), 0 8px 14px -6px rgba(238,131,177,.4)',
   background: '#fff', overflow: 'hidden',
 } as React.CSSProperties
 
-async function getOrGenerateReport(supabase: Awaited<ReturnType<typeof createClient>>, coupleId: string, myId: string) {
+async function getOrGenerateReport(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  coupleId: string,
+  myId: string
+) {
   const today = new Date().toISOString().split('T')[0]
+
   const { data: existing } = await supabase
     .from('daily_reports').select('analysis_json, quest_json')
     .eq('couple_id', coupleId).eq('date', today).single()
-  if (existing) return { analysis: existing.analysis_json as AnalysisResult, quest: existing.quest_json as AnalysisResult['quest'] }
 
-  const { data: diaries } = await supabase.rpc('get_couple_diaries', { couple_id_input: coupleId, date_input: today })
+  if (existing?.analysis_json) {
+    return { analysis: existing.analysis_json as AnalysisResult }
+  }
+
+  const { data: diaries } = await supabase.rpc('get_couple_diaries', {
+    couple_id_input: coupleId, date_input: today,
+  })
   if (!diaries || diaries.length < 2) return null
-  const myDiary = diaries.find((d: any) => d.user_id === myId)
+
+  const myDiary   = diaries.find((d: any) => d.user_id === myId)
   const partnerDiary = diaries.find((d: any) => d.user_id !== myId)
   if (!myDiary || !partnerDiary) return null
 
-  const analysis = await analyzeCoupleDiary(myDiary, partnerDiary)
-  await supabase.rpc('save_daily_report', { couple_id_input: coupleId, date_input: today, analysis, quest: analysis.quest, monster: analysis.monster })
-  return { analysis, quest: analysis.quest }
+  // 14일 패턴 히스토리 로드
+  const patterns = await getCouplePatterns(coupleId)
+  const history  = patterns.recentHistory
+
+  const analysis = await analyzeCoupleDiary(myDiary, partnerDiary, history)
+
+  await supabase.rpc('save_daily_report', {
+    couple_id_input: coupleId,
+    date_input: today,
+    analysis: analysis,
+    quest: analysis.todayQuest,
+    monster: analysis.todayMonster,
+  })
+
+  return { analysis }
 }
 
 export default async function TodayPage() {
@@ -76,7 +96,7 @@ export default async function TodayPage() {
     .from('diary_entries').select('id').eq('user_id', user.id).eq('date', today).single()
   const { data: diaryCount } = await supabase
     .rpc('count_couple_diaries', { couple_id_input: coupleId, date_input: today })
-  const partnerDiary = (diaryCount ?? 0) >= 2
+  const partnerWrote = (diaryCount ?? 0) >= 2
 
   if (!myDiary) redirect('/diary/new')
 
@@ -90,8 +110,7 @@ export default async function TodayPage() {
   const xpForNext = 100 + ((couple?.level ?? 1) - 1) * 150
   const relHealth = Math.min(100, Math.round(((couple?.exp ?? 0) / xpForNext) * 100))
 
-  /* 파트너 대기 화면 */
-  if (!partnerDiary) {
+  if (!partnerWrote) {
     return (
       <DeviceFrame relHealth={relHealth} xp={couple?.exp ?? 0} streak={streak ?? 0} nickname={profile?.nickname ?? ''}>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center' }}>
@@ -107,12 +126,7 @@ export default async function TodayPage() {
               파트너의 일기를 기다리는 중이에요.<br />둘 다 쓰면 오늘의 리포트가 완성돼요.
             </div>
           </div>
-          <div style={{
-            width: '100%', background: 'linear-gradient(135deg, #fff5fa, var(--p-100))',
-            border: '1.5px solid var(--p-400)', borderRadius: 12,
-            boxShadow: '0 0 0 2.5px #fff, 0 0 0 4px var(--p-400)',
-            padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8,
-          }}>
+          <div style={{ width: '100%', background: 'linear-gradient(135deg, #fff5fa, var(--p-100))', border: '1.5px solid var(--p-400)', borderRadius: 12, boxShadow: '0 0 0 2.5px #fff, 0 0 0 4px var(--p-400)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[{ label: '나', done: true }, { label: '파트너', done: false }].map(({ label, done }) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                 <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
@@ -144,8 +158,38 @@ export default async function TodayPage() {
   }
 
   const { analysis } = report
-  const risk = RISK_CONFIG[analysis.riskLevel]
-  const detectedHorsemen = Object.entries(analysis.horsemen).filter(([, v]) => v)
+  const risk = RISK_CONFIG[analysis.riskLevel ?? 'GREEN']
+
+  // 감정 키워드: primaryEmotions (새 스키마) 또는 구버전 fallback
+  const myEmotions = analysis.userA?.primaryEmotions
+    ?? (analysis as any).emotionKeywords?.a
+    ?? []
+  const partnerEmotions = analysis.userB?.primaryEmotions
+    ?? (analysis as any).emotionKeywords?.b
+    ?? []
+
+  // 4독 감지: gottmanSignals에서 추출 (구버전 horsemen 필드 fallback 포함)
+  const allSignals = [
+    ...(analysis.userA?.gottmanSignals ?? []),
+    ...(analysis.userB?.gottmanSignals ?? []),
+  ]
+  const legacyHorsemen = (analysis as any).horsemen ?? {}
+  const detectedSignals = allSignals.length > 0
+    ? Array.from(new Set(allSignals))
+    : Object.entries(legacyHorsemen).filter(([, v]) => v).map(([k]) => k)
+
+  // 추구-철수: 새 스키마 cycle.detected, 구버전 pursueWithdraw fallback
+  const cycleDetected = analysis.cycle?.detected ?? (analysis as any).pursueWithdraw ?? false
+
+  // 퀘스트
+  const questTitle = analysis.todayQuest?.title ?? (analysis as any).quest?.text ?? ''
+  const questSub   = analysis.todayQuest?.instruction
+    ?? analysis.todayQuest?.eftTechnique
+    ?? (analysis as any).quest?.theory
+    ?? ''
+
+  // 정서 번역문
+  const translationForMe = analysis.translationForA ?? null
 
   return (
     <DeviceFrame relHealth={relHealth} xp={couple?.exp ?? 0} streak={streak ?? 0} nickname={profile?.nickname ?? ''}>
@@ -157,6 +201,18 @@ export default async function TodayPage() {
           <div style={{ fontSize: 12, color: risk.text, lineHeight: 1.7, opacity: .85 }}>{analysis.message}</div>
         </div>
 
+        {/* AI 정서 번역: 파트너 마음 */}
+        {translationForMe && (
+          <div style={{ ...cardStyle }}>
+            <div style={{ background: 'linear-gradient(90deg, var(--lavender), #c8dcff)', color: '#5a45a0', padding: '6px 12px', borderBottom: '1.5px dashed var(--blue-2)', fontSize: 12, fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
+              ♡ 파트너의 마음을 번역했어요
+            </div>
+            <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.8, fontStyle: 'italic' }}>
+              {translationForMe}
+            </div>
+          </div>
+        )}
+
         {/* 감정 키워드 */}
         <div style={cardStyle}>
           <div style={{ background: 'linear-gradient(90deg, #ffd6e8, #ffb6d0)', color: 'var(--p-700)', padding: '6px 12px', borderBottom: '1.5px dashed var(--p-500)', fontSize: 12, fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
@@ -164,13 +220,13 @@ export default async function TodayPage() {
           </div>
           <div style={{ padding: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             {[
-              { label: '나', keywords: analysis.emotionKeywords.a, bg: 'var(--p-200)', color: 'var(--p-700)', border: 'var(--p-400)' },
-              { label: '파트너', keywords: analysis.emotionKeywords.b, bg: 'var(--lavender)', color: '#5a45a0', border: 'var(--blue-2)' },
+              { label: '나', keywords: myEmotions,      bg: 'var(--p-200)',   color: 'var(--p-700)', border: 'var(--p-400)' },
+              { label: '파트너', keywords: partnerEmotions, bg: 'var(--lavender)', color: '#5a45a0',    border: 'var(--blue-2)' },
             ].map(({ label, keywords, bg, color, border }) => (
               <div key={label}>
                 <div className="pixel" style={{ fontSize: 10, color, marginBottom: 6, fontWeight: 700 }}>{label}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {keywords.map((k: string) => (
+                  {(keywords as string[]).map((k: string) => (
                     <span key={k} style={{ background: `linear-gradient(180deg, #fff, ${bg})`, color, border: `1.5px solid ${border}`, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700, boxShadow: `0 0 0 1.5px #fff, 0 0 0 2.5px ${border}`, textShadow: '1px 1px 0 #fff' }}>{k}</span>
                   ))}
                 </div>
@@ -180,7 +236,7 @@ export default async function TodayPage() {
         </div>
 
         {/* 온도 차이 */}
-        {analysis.temperatureGap > 0 && (
+        {(analysis.temperatureGap ?? 0) > 0 && (
           <div style={cardStyle}>
             <div style={{ background: 'linear-gradient(90deg, #ffd6e8, #ffb6d0)', color: 'var(--p-700)', padding: '6px 12px', borderBottom: '1.5px dashed var(--p-500)', fontSize: 12, fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
               ▸ 감정 온도 차이
@@ -188,27 +244,32 @@ export default async function TodayPage() {
             <div style={{ padding: '12px 14px' }}>
               <div className="screen" style={{ fontSize: 38, color: 'var(--p-600)', lineHeight: 1, marginBottom: 4 }}>{analysis.temperatureGap}°</div>
               <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-                {analysis.temperatureGap <= 2 ? '두 분이 비슷한 온도를 느꼈어요 ♡' : '오늘 서로 다른 온도를 느꼈네요. 이야기 나눠봐요.'}
+                {(analysis.temperatureGap ?? 0) <= 2 ? '두 분이 비슷한 온도를 느꼈어요 ♡' : '오늘 서로 다른 온도를 느꼈네요. 이야기 나눠봐요.'}
               </div>
             </div>
           </div>
         )}
 
-        {/* 4독 감지 */}
-        {detectedHorsemen.length > 0 && (
+        {/* 사이클 / 패턴 감지 */}
+        {(detectedSignals.length > 0 || cycleDetected) && (
           <div style={cardStyle}>
             <div style={{ background: 'linear-gradient(90deg, var(--lavender), #c8dcff)', color: '#5a45a0', padding: '6px 12px', borderBottom: '1.5px dashed var(--blue-2)', fontSize: 12, fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
               ⚠ 감지된 신호
             </div>
             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {detectedHorsemen.map(([key]) => (
-                <div key={key} style={{ background: 'linear-gradient(180deg, #fff, var(--lavender))', border: '1.5px solid var(--blue-2)', borderRadius: 10, boxShadow: '0 0 0 2px #fff, 0 0 0 3px var(--blue-2)', padding: '7px 10px', fontSize: 12, color: '#5a45a0', fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
-                  ▸ {HORSEMEN_LABELS[key as keyof typeof HORSEMEN_LABELS]} 패턴이 감지됐어요
+              {detectedSignals.map((signal: string) => (
+                <div key={signal} style={{ background: 'linear-gradient(180deg, #fff, var(--lavender))', border: '1.5px solid var(--blue-2)', borderRadius: 10, boxShadow: '0 0 0 2px #fff, 0 0 0 3px var(--blue-2)', padding: '7px 10px', fontSize: 12, color: '#5a45a0', fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
+                  ▸ {signal} 패턴이 감지됐어요
                 </div>
               ))}
-              {analysis.pursueWithdraw && (
+              {cycleDetected && (
                 <div style={{ background: 'linear-gradient(180deg, #fff, var(--p-100))', border: '1.5px solid var(--p-400)', borderRadius: 10, boxShadow: '0 0 0 2px #fff, 0 0 0 3px var(--p-400)', padding: '7px 10px', fontSize: 12, color: 'var(--p-700)', fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
-                  ↔ 추구-철수 패턴이 보여요
+                  ↔ {analysis.cycle?.description ?? '추구-철수 패턴이 보여요'}
+                  {(analysis.cycle?.consecutiveDays ?? 0) >= 7 && (
+                    <div style={{ fontSize: 11, marginTop: 4, opacity: .8 }}>
+                      ⚠ {analysis.cycle?.consecutiveDays}일째 지속 중이에요 — 같이 이 패턴을 깨봐요
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -221,7 +282,14 @@ export default async function TodayPage() {
         ))}
 
         {/* 퀘스트 */}
-        <QuestButton coupleId={coupleId} questText={analysis.quest.text} questTheory={analysis.quest.theory} alreadyDone={!!questDone} />
+        {questTitle && (
+          <QuestButton
+            coupleId={coupleId}
+            questText={questTitle}
+            questTheory={questSub}
+            alreadyDone={!!questDone}
+          />
+        )}
 
         {/* 커플 레벨 */}
         {couple && (
