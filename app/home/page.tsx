@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { signOut } from '@/app/actions/auth'
 import HomeClient from './HomeClient'
+import DeviceFrame from '@/components/DeviceFrame'
 
 export default async function HomePage() {
   const supabase = createClient()
@@ -12,17 +12,10 @@ export default async function HomePage() {
   const today = new Date().toISOString().split('T')[0]
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('nickname, couple_id')
-    .eq('id', user.id)
-    .single()
+    .from('profiles').select('nickname, couple_id').eq('id', user.id).single()
 
   const { data: myDiary } = await supabase
-    .from('diary_entries')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('date', today)
-    .maybeSingle()
+    .from('diary_entries').select('id').eq('user_id', user.id).eq('date', today).maybeSingle()
 
   let partnerWrote = false
   let couple = null
@@ -31,9 +24,7 @@ export default async function HomePage() {
 
   if (profile?.couple_id) {
     const { data: members } = await supabase
-      .from('profiles')
-      .select('id, nickname')
-      .eq('couple_id', profile.couple_id)
+      .from('profiles').select('id, nickname').eq('couple_id', profile.couple_id)
 
     const partner = members?.find(m => m.id !== user.id)
     partnerNickname = partner?.nickname ?? '파트너'
@@ -45,10 +36,7 @@ export default async function HomePage() {
     }
 
     const { data: coupleData } = await supabase
-      .from('couples')
-      .select('level, exp')
-      .eq('id', profile.couple_id)
-      .single()
+      .from('couples').select('level, exp').eq('id', profile.couple_id).single()
     couple = coupleData
 
     const { count } = await supabase
@@ -63,28 +51,12 @@ export default async function HomePage() {
   const relHealth = Math.min(100, Math.round(((couple?.exp ?? 0) / xpForNext) * 100))
 
   return (
-    <div style={{ minHeight: '100vh', position: 'relative', zIndex: 1 }}>
-      {/* 헤더 */}
-      <div style={{ padding: '20px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="cursive" style={{ fontSize: 24, color: 'var(--p-600)', textShadow: '1.5px 1.5px 0 #fff' }}>
-          couple ♡
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            background: 'linear-gradient(180deg,#fff,var(--p-200))', border: '1.5px solid var(--p-500)',
-            borderRadius: 999, padding: '4px 12px', fontSize: 13, fontWeight: 700,
-            color: 'var(--p-700)', boxShadow: '0 0 0 2px #fff, 0 0 0 3px var(--p-400)',
-            textShadow: '1px 1px 0 #fff',
-          }}>{profile?.nickname} ♡</span>
-          <form action={signOut}>
-            <button style={{
-              background: '#fff', border: '1.5px solid var(--p-300)', borderRadius: 999,
-              padding: '4px 12px', fontSize: 11, color: 'var(--ink-2)', cursor: 'pointer',
-            }}>로그아웃</button>
-          </form>
-        </div>
-      </div>
-
+    <DeviceFrame
+      relHealth={relHealth}
+      xp={couple?.exp ?? 0}
+      streak={streak}
+      nickname={profile?.nickname ?? ''}
+    >
       <HomeClient
         nickname={profile?.nickname ?? ''}
         partnerNickname={partnerNickname}
@@ -97,6 +69,6 @@ export default async function HomePage() {
         bothWrote={bothWrote}
         hasCouple={!!profile?.couple_id}
       />
-    </div>
+    </DeviceFrame>
   )
 }
