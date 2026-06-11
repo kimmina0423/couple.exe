@@ -4,12 +4,39 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createCouple, joinCouple } from '@/app/actions/couple'
 import { createClient } from '@/lib/supabase/client'
+import DeviceFrame from '@/components/DeviceFrame'
 
 type Status =
   | { type: 'loading' }
   | { type: 'no_couple' }
   | { type: 'waiting'; code: string }
   | { type: 'connected'; partnerNickname: string; level: number; exp: number }
+
+const pinkBtn = {
+  width: '100%', background: 'linear-gradient(180deg, #ffc8de, #ff9ec5)',
+  color: '#fff', border: '2px solid #ee83b1', borderRadius: 999,
+  boxShadow: '0 0 0 2.5px #fff, 0 0 0 4px #ee83b1',
+  padding: '12px', fontSize: 15, fontFamily: 'var(--font-round)' as const, fontWeight: 700,
+  cursor: 'pointer', textShadow: '1px 1px 0 rgba(238,131,177,.5)',
+} as React.CSSProperties
+
+const whiteBtn = {
+  width: '100%', background: 'linear-gradient(180deg, #fff, #fff0f6)',
+  color: 'var(--p-700)', border: '2px solid var(--p-500)', borderRadius: 999,
+  boxShadow: '0 0 0 2.5px #fff, 0 0 0 4px var(--p-500)',
+  padding: '12px', fontSize: 15, fontFamily: 'var(--font-round)' as const, fontWeight: 700,
+  cursor: 'pointer', textShadow: '1px 1px 0 #fff',
+} as React.CSSProperties
+
+const inputStyle = {
+  width: '100%',
+  background: 'repeating-linear-gradient(0deg, #fff 0 27px, #ffe2ee 27px 28px)',
+  border: '1.5px solid var(--p-500)', borderRadius: 8,
+  padding: '12px', fontFamily: 'var(--font-round)' as const,
+  fontSize: 20, color: 'var(--ink)', outline: 'none',
+  boxShadow: '0 0 0 2px #fff, 0 0 0 3px var(--p-400)',
+  textAlign: 'center' as const, letterSpacing: 6, fontWeight: 700,
+}
 
 export default function CouplePage() {
   const router = useRouter()
@@ -20,9 +47,7 @@ export default function CouplePage() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
-    loadStatus()
-  }, [])
+  useEffect(() => { loadStatus() }, [])
 
   async function loadStatus() {
     const supabase = createClient()
@@ -30,75 +55,38 @@ export default function CouplePage() {
     if (!user) { router.push('/login'); return }
 
     const { data: profile } = await supabase
-      .from('profiles')
-      .select('couple_id')
-      .eq('id', user.id)
-      .single()
+      .from('profiles').select('couple_id').eq('id', user.id).single()
 
-    if (!profile?.couple_id) {
-      setStatus({ type: 'no_couple' })
-      return
-    }
+    if (!profile?.couple_id) { setStatus({ type: 'no_couple' }); return }
 
-    // 파트너 있는지 확인
     const { data: members } = await supabase
-      .from('profiles')
-      .select('id, nickname')
-      .eq('couple_id', profile.couple_id)
+      .from('profiles').select('id, nickname').eq('couple_id', profile.couple_id)
 
     const partner = members?.find(m => m.id !== user.id)
 
     if (!partner) {
-      // 내가 만든 코드 조회
       const { data: couple } = await supabase
-        .from('couples')
-        .select('invite_code')
-        .eq('id', profile.couple_id)
-        .single()
-
+        .from('couples').select('invite_code').eq('id', profile.couple_id).single()
       setStatus({ type: 'waiting', code: couple?.invite_code ?? '' })
     } else {
       const { data: couple } = await supabase
-        .from('couples')
-        .select('level, exp')
-        .eq('id', profile.couple_id)
-        .single()
-
-      setStatus({
-        type: 'connected',
-        partnerNickname: partner.nickname ?? '파트너',
-        level: couple?.level ?? 1,
-        exp: couple?.exp ?? 0,
-      })
+        .from('couples').select('level, exp').eq('id', profile.couple_id).single()
+      setStatus({ type: 'connected', partnerNickname: partner.nickname ?? '파트너', level: couple?.level ?? 1, exp: couple?.exp ?? 0 })
     }
   }
 
   async function handleCreate() {
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     const result = await createCouple()
-    if (result.error) {
-      setError(result.error)
-    } else {
-      setMode('choose')
-      await loadStatus()
-    }
+    if (result.error) { setError(result.error) } else { setMode('choose'); await loadStatus() }
     setLoading(false)
   }
 
   async function handleJoin() {
-    if (inputCode.trim().length < 6) {
-      setError('6자리 코드를 입력해주세요.')
-      return
-    }
-    setLoading(true)
-    setError(null)
+    if (inputCode.trim().length < 6) { setError('6자리 코드를 입력해주세요.'); return }
+    setLoading(true); setError(null)
     const result = await joinCouple(inputCode)
-    if (result.error) {
-      setError(result.error)
-    } else {
-      await loadStatus()
-    }
+    if (result.error) { setError(result.error) } else { await loadStatus() }
     setLoading(false)
   }
 
@@ -108,127 +96,130 @@ export default function CouplePage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (status.type === 'loading') {
-    return (
-      <div className="min-h-screen bg-rose-50 flex items-center justify-center">
-        <div className="text-gray-300 text-sm">불러오는 중...</div>
-      </div>
-    )
-  }
+  const ErrorBox = ({ msg }: { msg: string }) => (
+    <div style={{ background: 'linear-gradient(180deg, #fff, var(--p-200))', border: '1.5px solid var(--p-500)', borderRadius: 10, padding: '8px 12px', fontSize: 13, color: 'var(--p-700)', textAlign: 'center' }}>
+      ⚠ {msg}
+    </div>
+  )
+
+  const BackBtn = () => (
+    <button style={{ background: 'none', border: 'none', color: 'var(--p-600)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-round)', fontWeight: 700 }}
+      onClick={() => setMode('choose')}>
+      ← 돌아가기
+    </button>
+  )
 
   return (
-    <div className="min-h-screen bg-rose-50 flex flex-col items-center justify-center px-6">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-800">💑 커플 연결</h1>
-        </div>
+    <DeviceFrame>
+      <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+
+        {/* 로딩 */}
+        {status.type === 'loading' && (
+          <div style={{ paddingTop: 60, textAlign: 'center' }}>
+            <div className="cursive" style={{ fontSize: 20, color: 'var(--p-500)', textShadow: '1px 1px 0 #fff', animation: 'wiggle 1.6s infinite' }}>
+              loading ♡
+            </div>
+          </div>
+        )}
 
         {/* 연결 완료 */}
         {status.type === 'connected' && (
-          <div className="bg-white rounded-3xl shadow-sm p-6 space-y-4 text-center">
-            <div className="text-4xl">🥰</div>
-            <p className="font-semibold text-gray-800">{status.partnerNickname}님과 연결됐어요!</p>
-            <div className="bg-rose-50 rounded-2xl p-4 space-y-2">
-              <p className="text-sm text-gray-500">커플 레벨</p>
-              <p className="text-3xl font-bold text-rose-500">Lv.{status.level}</p>
-              <p className="text-xs text-gray-400">{status.exp} XP</p>
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
+            <div style={{ animation: 'heartbeat 1.6s infinite' }}>
+              <svg viewBox="0 0 36 32" width={56}>
+                <path d="M18 30 C 4 22, 0 14, 0 9 C 0 3, 4 0, 9 0 C 13 0, 16 2, 18 5 C 20 2, 23 0, 27 0 C 32 0, 36 3, 36 9 C 36 14, 32 22, 18 30 Z"
+                  fill="#ffb6d0" stroke="#ff9ec5" strokeWidth="1.2" />
+                <ellipse cx="9" cy="7" rx="3" ry="2" fill="#fff" opacity=".85" />
+              </svg>
             </div>
-            <button
-              onClick={() => router.push('/home')}
-              className="w-full rounded-2xl bg-rose-400 py-3 text-white font-semibold"
-            >
-              홈으로
-            </button>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', textAlign: 'center' }}>
+              {status.partnerNickname}님과 연결됐어요!
+            </div>
+            <div style={{
+              width: '100%', background: 'linear-gradient(135deg, var(--p-100), var(--lavender))',
+              border: '1.5px solid var(--p-400)', borderRadius: 14,
+              boxShadow: '0 0 0 2.5px #fff, 0 0 0 4px var(--p-400)',
+              padding: 16, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 4,
+            }}>
+              <div style={{ fontSize: 12, color: 'var(--p-700)', fontWeight: 700 }}>커플 레벨</div>
+              <div className="screen" style={{ fontSize: 36, color: 'var(--p-600)', lineHeight: 1 }}>Lv.{status.level}</div>
+              <div className="pixel" style={{ fontSize: 12, color: 'var(--p-700)' }}>{status.exp} XP</div>
+            </div>
+            <button style={{ ...pinkBtn, width: '100%' }} onClick={() => router.push('/home')}>홈으로 →</button>
           </div>
         )}
 
         {/* 파트너 대기 중 */}
         {status.type === 'waiting' && (
-          <div className="bg-white rounded-3xl shadow-sm p-6 space-y-4 text-center">
-            <div className="text-4xl animate-pulse">📨</div>
-            <p className="text-gray-600 text-sm">이 코드를 파트너에게 보내주세요</p>
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
+            <div className="cursive" style={{ fontSize: 16, color: 'var(--p-600)', textShadow: '1px 1px 0 #fff', textAlign: 'center' }}>
+              이 코드를 파트너에게 보내주세요
+            </div>
             <div
-              className="bg-rose-50 rounded-2xl py-5 cursor-pointer active:bg-rose-100 transition-colors"
+              style={{
+                width: '100%', background: 'linear-gradient(135deg, #fff5fa, var(--p-200))',
+                border: '2px solid var(--p-500)', borderRadius: 16,
+                boxShadow: '0 0 0 3px #fff, 0 0 0 4.5px var(--p-500)',
+                padding: 20, cursor: 'pointer', textAlign: 'center',
+              }}
               onClick={() => copyCode(status.code)}
             >
-              <p className="text-4xl font-bold tracking-widest text-rose-500">{status.code}</p>
-              <p className="text-xs text-gray-400 mt-2">{copied ? '✓ 복사됐어요!' : '탭해서 복사'}</p>
+              <div className="screen" style={{ fontSize: 40, color: 'var(--p-600)', letterSpacing: 6 }}>{status.code}</div>
+              <div className="pixel" style={{ fontSize: 11, color: 'var(--p-700)', marginTop: 8, opacity: .7 }}>
+                {copied ? '✓ 복사됐어요!' : '▸ 탭해서 복사'}
+              </div>
             </div>
-            <p className="text-xs text-gray-400">파트너가 코드를 입력하면 자동으로 연결돼요</p>
-            <button
-              onClick={loadStatus}
-              className="w-full rounded-2xl border border-rose-200 py-3 text-rose-400 font-medium text-sm"
-            >
-              새로고침
-            </button>
+            <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6, textAlign: 'center' }}>
+              파트너가 코드를 입력하면 자동으로 연결돼요
+            </div>
+            <button style={whiteBtn} onClick={loadStatus}>새로고침 ↺</button>
           </div>
         )}
 
-        {/* 커플 없음 — 선택 화면 */}
+        {/* 선택 화면 */}
         {status.type === 'no_couple' && mode === 'choose' && (
-          <div className="bg-white rounded-3xl shadow-sm p-6 space-y-3">
-            <p className="text-center text-gray-500 text-sm mb-4">어떻게 연결할까요?</p>
-            <button
-              onClick={() => { setMode('create'); setError(null) }}
-              className="w-full rounded-2xl bg-rose-400 py-4 text-white font-semibold"
-            >
-              코드 만들기
-            </button>
-            <button
-              onClick={() => { setMode('join'); setError(null) }}
-              className="w-full rounded-2xl border border-rose-200 py-4 text-rose-400 font-semibold"
-            >
-              코드 입력하기
-            </button>
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ textAlign: 'center', fontSize: 14, color: 'var(--ink-2)', marginBottom: 4 }}>
+              어떻게 연결할까요?
+            </div>
+            <button style={pinkBtn} onClick={() => { setMode('create'); setError(null) }}>♡ 코드 만들기</button>
+            <button style={whiteBtn} onClick={() => { setMode('join'); setError(null) }}>코드 입력하기 →</button>
           </div>
         )}
 
         {/* 코드 만들기 */}
         {status.type === 'no_couple' && mode === 'create' && (
-          <div className="bg-white rounded-3xl shadow-sm p-6 space-y-4">
-            <p className="text-center text-gray-600 text-sm">
-              코드를 생성하면 파트너에게 공유해주세요.
-            </p>
-            {error && <p className="text-sm text-red-400 text-center">{error}</p>}
-            <button
-              onClick={handleCreate}
-              disabled={loading}
-              className="w-full rounded-2xl bg-rose-400 py-4 text-white font-semibold disabled:opacity-40"
-            >
-              {loading ? '생성 중...' : '코드 생성하기'}
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+              코드를 생성한 뒤 파트너에게 공유해주세요.
+            </div>
+            {error && <ErrorBox msg={error} />}
+            <button style={{ ...pinkBtn, opacity: loading ? .55 : 1 }} disabled={loading} onClick={handleCreate}>
+              {loading ? '생성 중…' : '♡ 코드 생성하기'}
             </button>
-            <button onClick={() => setMode('choose')} className="w-full text-sm text-gray-400">
-              ← 돌아가기
-            </button>
+            <BackBtn />
           </div>
         )}
 
         {/* 코드 입력하기 */}
         {status.type === 'no_couple' && mode === 'join' && (
-          <div className="bg-white rounded-3xl shadow-sm p-6 space-y-4">
-            <p className="text-center text-gray-600 text-sm">파트너에게 받은 6자리 코드를 입력해주세요.</p>
-            <input
-              type="text"
-              maxLength={6}
-              placeholder="XXXXXX"
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+              파트너에게 받은 6자리 코드를 입력해주세요.
+            </div>
+            <input type="text" maxLength={6} placeholder="XXXXXX"
               value={inputCode}
               onChange={e => setInputCode(e.target.value.toUpperCase())}
-              className="w-full text-center text-2xl font-bold tracking-widest rounded-2xl border border-rose-100 bg-rose-50 px-4 py-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-300 uppercase"
+              style={inputStyle}
             />
-            {error && <p className="text-sm text-red-400 text-center">{error}</p>}
-            <button
-              onClick={handleJoin}
-              disabled={loading}
-              className="w-full rounded-2xl bg-rose-400 py-4 text-white font-semibold disabled:opacity-40"
-            >
-              {loading ? '연결 중...' : '연결하기'}
+            {error && <ErrorBox msg={error} />}
+            <button style={{ ...pinkBtn, opacity: loading ? .55 : 1 }} disabled={loading} onClick={handleJoin}>
+              {loading ? '연결 중…' : '♡ 연결하기'}
             </button>
-            <button onClick={() => setMode('choose')} className="w-full text-sm text-gray-400">
-              ← 돌아가기
-            </button>
+            <BackBtn />
           </div>
         )}
       </div>
-    </div>
+    </DeviceFrame>
   )
 }
