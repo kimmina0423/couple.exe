@@ -172,6 +172,28 @@ export default async function TodayPage() {
   const { data: activeMonsters } = await supabase
     .from('monsters').select('type, hp, max_hp').eq('couple_id', coupleId).is('defeated_at', null)
 
+  // 파트너가 보낸 미확인 찌르기 확인
+  let pokeReceived = false
+  try {
+    const { data: unseenPoke } = await supabase
+      .from('poke_events')
+      .select('id')
+      .eq('couple_id', coupleId)
+      .neq('poker_id', user.id)
+      .is('seen_at', null)
+      .limit(1)
+      .maybeSingle()
+    if (unseenPoke) {
+      pokeReceived = true
+      // 확인 처리
+      await supabase.from('poke_events')
+        .update({ seen_at: new Date().toISOString() })
+        .eq('couple_id', coupleId)
+        .neq('poker_id', user.id)
+        .is('seen_at', null)
+    }
+  } catch { /* poke_events 테이블 없으면 무시 */ }
+
   const report = await getOrGenerateReport(supabase, coupleId, user.id)
 
   if (!report) {
@@ -324,8 +346,15 @@ export default async function TodayPage() {
         )}
 
         {/* 몬스터 */}
-        {activeMonsters && activeMonsters.length > 0 && activeMonsters.map(m => (
-          <MonsterCard key={m.type} type={m.type as MonsterType} hp={m.hp} maxHp={m.max_hp} />
+        {activeMonsters && activeMonsters.length > 0 && activeMonsters.map((m, i) => (
+          <MonsterCard
+            key={m.type}
+            type={m.type as MonsterType}
+            hp={m.hp}
+            maxHp={m.max_hp}
+            coupleId={coupleId}
+            pokeReceived={i === 0 && pokeReceived}
+          />
         ))}
 
         {/* 퀘스트 */}
