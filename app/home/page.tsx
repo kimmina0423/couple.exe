@@ -26,42 +26,40 @@ export default async function HomePage() {
   let streak = 0
 
   if (profile?.couple_id) {
-    const { data: members } = await supabase
-      .from('profiles').select('id, nickname').eq('couple_id', profile.couple_id)
+    const coupleId = profile.couple_id
 
-    const partner = members?.find(m => m.id !== user.id)
+    const [membersResult, coupleResult, streakResult] = await Promise.all([
+      supabase.from('profiles').select('id, nickname').eq('couple_id', coupleId),
+      supabase.from('couples').select('level, exp').eq('id', coupleId).single(),
+      supabase.from('quest_completions').select('id', { count: 'exact', head: true }).eq('couple_id', coupleId),
+    ])
+
+    const partner = membersResult.data?.find(m => m.id !== user.id)
     partnerNickname = partner?.nickname ?? '파트너'
+    couple = coupleResult.data
+    streak = streakResult.count ?? 0
 
     if (partner) {
       const { data: diaryCount } = await supabase
-        .rpc('count_couple_diaries', { couple_id_input: profile.couple_id, date_input: today })
+        .rpc('count_couple_diaries', { couple_id_input: coupleId, date_input: today })
       partnerWrote = (diaryCount ?? 0) >= (myDiary ? 2 : 1)
     }
-
-    const { data: coupleData } = await supabase
-      .from('couples').select('level, exp').eq('id', profile.couple_id).single()
-    couple = coupleData
-
-    const { count } = await supabase
-      .from('quest_completions')
-      .select('id', { count: 'exact', head: true })
-      .eq('couple_id', profile.couple_id)
-    streak = count ?? 0
   }
 
   const bothWrote = !!myDiary && partnerWrote
   const xpForNext = 100 + ((couple?.level ?? 1) - 1) * 150
   const relHealth = Math.min(100, Math.round(((couple?.exp ?? 0) / xpForNext) * 100))
 
-  // 몬스터 동기화 + 활성 몬스터 조회
+  // 몬스터 동기화 + 활성 몬스터 조회 (병렬)
   let activeMonsters: { type: string; hp: number; max_hp: number }[] = []
   if (profile?.couple_id) {
     try {
-      await syncMonsters(supabase, profile.couple_id)
-      const { data } = await supabase
-        .from('monsters').select('type, hp, max_hp')
-        .eq('couple_id', profile.couple_id).is('defeated_at', null)
-      activeMonsters = data ?? []
+      const [, monstersResult] = await Promise.all([
+        syncMonsters(supabase, profile.couple_id),
+        supabase.from('monsters').select('type, hp, max_hp')
+          .eq('couple_id', profile.couple_id).is('defeated_at', null),
+      ])
+      activeMonsters = monstersResult.data ?? []
     } catch { /* 몬스터 없으면 무시 */ }
   }
 

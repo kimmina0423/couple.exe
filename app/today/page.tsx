@@ -30,43 +30,29 @@ async function getOrGenerateReport(
 ): Promise<{ analysis: AnalysisResult; fromCache: boolean } | null> {
   const today = new Date().toISOString().split('T')[0]
 
-  // 1) 캐시된 리포트 확인
-  try {
-    const { data: existing } = await supabase
-      .from('daily_reports').select('analysis_json')
-      .eq('couple_id', coupleId).eq('date', today).single()
-    if (existing?.analysis_json) {
-      return { analysis: existing.analysis_json as AnalysisResult, fromCache: true }
-    }
-  } catch { /* 없으면 신규 생성 */ }
+  // 1) 캐시 확인 + 일기 조회 + 히스토리 — 동시 실행
+  const [existingResult, diariesResult, patternsResult] = await Promise.all([
+    Promise.resolve(supabase.from('daily_reports').select('analysis_json')
+      .eq('couple_id', coupleId).eq('date', today).single()).catch(() => ({ data: null })),
+    Promise.resolve(supabase.rpc('get_couple_diaries', { couple_id_input: coupleId, date_input: today }))
+      .catch(() => ({ data: null })),
+    getCouplePatterns(coupleId).catch(() => ({ recentHistory: [] as any[] })),
+  ])
 
-  // 2) 두 사람 일기 조회
-  let diaries: any[] | null = null
-  try {
-    const { data } = await supabase.rpc('get_couple_diaries', {
-      couple_id_input: coupleId, date_input: today,
-    })
-    diaries = data
-  } catch (e) {
-    console.error('[report] get_couple_diaries failed:', e)
-    return null
+  if ((existingResult as any).data?.analysis_json) {
+    return { analysis: (existingResult as any).data.analysis_json as AnalysisResult, fromCache: true }
   }
+
+  const diaries: any[] | null = (diariesResult as any).data
   if (!diaries || diaries.length < 2) return null
 
   const myDiary      = diaries.find((d: any) => d.user_id === myId)
   const partnerDiary = diaries.find((d: any) => d.user_id !== myId)
   if (!myDiary || !partnerDiary) return null
 
-  // 3) 14일 히스토리 (실패해도 빈 배열로 대체)
-  let history: Awaited<ReturnType<typeof getCouplePatterns>>['recentHistory'] = []
-  try {
-    const patterns = await getCouplePatterns(coupleId)
-    history = patterns.recentHistory
-  } catch (e) {
-    console.error('[report] getCouplePatterns failed, using empty history:', e)
-  }
+  const history = (patternsResult as any).recentHistory ?? []
 
-  // 4) AI 분석
+  // 2) AI 분석
   let analysis: AnalysisResult
   try {
     analysis = await analyzeCoupleDiary(myDiary, partnerDiary, history)
@@ -75,18 +61,14 @@ async function getOrGenerateReport(
     return null
   }
 
-  // 5) 저장 (실패해도 분석 결과는 반환)
-  try {
-    await supabase.rpc('save_daily_report', {
-      couple_id_input: coupleId,
-      date_input: today,
-      analysis: analysis,
-      quest: analysis.todayQuest,
-      monster: analysis.todayMonster,
-    })
-  } catch (e) {
-    console.error('[report] save_daily_report failed:', e)
-  }
+  // 3) 저장 — 결과 반환을 막지 않도록 await 제거 후 fire-and-forget
+  Promise.resolve(supabase.rpc('save_daily_report', {
+    couple_id_input: coupleId,
+    date_input: today,
+    analysis: analysis,
+    quest: analysis.todayQuest,
+    monster: analysis.todayMonster,
+  })).catch((e: unknown) => console.error('[report] save_daily_report failed:', e))
 
   return { analysis, fromCache: false }
 }
@@ -119,20 +101,25 @@ export default async function TodayPage() {
   }
 
   const coupleId = profile.couple_id
-  const { data: myDiary } = await supabase
-    .from('diary_entries').select('id').eq('user_id', user.id).eq('date', today).single()
-  const { data: diaryCount } = await supabase
-    .rpc('count_couple_diaries', { couple_id_input: coupleId, date_input: today })
+
+  // 독립 쿼리 전부 병렬 실행
+  const [
+    { data: myDiary },
+    { data: diaryCount },
+    { data: couple },
+    { data: questDone },
+    { count: streak },
+  ] = await Promise.all([
+    supabase.from('diary_entries').select('id').eq('user_id', user.id).eq('date', today).single(),
+    supabase.rpc('count_couple_diaries', { couple_id_input: coupleId, date_input: today }),
+    supabase.from('couples').select('level, exp').eq('id', coupleId).single(),
+    supabase.from('quest_completions').select('id').eq('couple_id', coupleId).eq('date', today).single(),
+    supabase.from('quest_completions').select('id', { count: 'exact', head: true }).eq('couple_id', coupleId),
+  ])
+
   const partnerWrote = (diaryCount ?? 0) >= 2
 
   if (!myDiary) redirect('/diary/new')
-
-  const { data: couple } = await supabase
-    .from('couples').select('level, exp').eq('id', coupleId).single()
-  const { data: questDone } = await supabase
-    .from('quest_completions').select('id').eq('couple_id', coupleId).eq('date', today).single()
-  const { count: streak } = await supabase
-    .from('quest_completions').select('id', { count: 'exact', head: true }).eq('couple_id', coupleId)
 
   const xpForNext = 100 + ((couple?.level ?? 1) - 1) * 150
   const relHealth = Math.min(100, Math.round(((couple?.exp ?? 0) / xpForNext) * 100))
@@ -168,33 +155,29 @@ export default async function TodayPage() {
     )
   }
 
-  await syncMonsters(supabase, coupleId)
-  const { data: activeMonsters } = await supabase
-    .from('monsters').select('type, hp, max_hp').eq('couple_id', coupleId).is('defeated_at', null)
+  // 몬스터 sync + poke 확인 + 리포트 생성 — 병렬 실행
+  const [, activeMonstersResult, unseenPokeResult, report] = await Promise.all([
+    syncMonsters(supabase, coupleId).catch(() => {}),
+    Promise.resolve(supabase.from('monsters').select('type, hp, max_hp').eq('couple_id', coupleId).is('defeated_at', null)),
+    Promise.resolve(
+      supabase.from('poke_events')
+        .select('id').eq('couple_id', coupleId).neq('poker_id', user.id)
+        .is('seen_at', null).limit(1).maybeSingle()
+    ).catch(() => ({ data: null })),
+    getOrGenerateReport(supabase, coupleId, user.id),
+  ])
 
-  // 파트너가 보낸 미확인 찌르기 확인
-  let pokeReceived = false
-  try {
-    const { data: unseenPoke } = await supabase
-      .from('poke_events')
-      .select('id')
-      .eq('couple_id', coupleId)
-      .neq('poker_id', user.id)
-      .is('seen_at', null)
-      .limit(1)
-      .maybeSingle()
-    if (unseenPoke) {
-      pokeReceived = true
-      // 확인 처리
-      await supabase.from('poke_events')
+  const activeMonsters = activeMonstersResult.data
+  const pokeReceived = !!(unseenPokeResult as any).data
+
+  // poke 확인 처리 (비동기, 응답 안 기다림)
+  if (pokeReceived) {
+    Promise.resolve(
+      supabase.from('poke_events')
         .update({ seen_at: new Date().toISOString() })
-        .eq('couple_id', coupleId)
-        .neq('poker_id', user.id)
-        .is('seen_at', null)
-    }
-  } catch { /* poke_events 테이블 없으면 무시 */ }
-
-  const report = await getOrGenerateReport(supabase, coupleId, user.id)
+        .eq('couple_id', coupleId).neq('poker_id', user.id).is('seen_at', null)
+    ).catch(() => {})
+  }
 
   if (!report) {
     return (
