@@ -69,7 +69,7 @@ export const MONSTER_CONFIG = {
 
 export type MonsterType = keyof typeof MONSTER_CONFIG
 
-const SIGNAL_THRESHOLD = 3
+const SIGNAL_THRESHOLD = 1  // 데모용: 1회 감지 시 등장 (실서비스는 3 권장)
 const MAX_HP = 100
 
 export async function syncMonsters(supabase: SupabaseClient, coupleId: string) {
