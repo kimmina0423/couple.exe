@@ -1,7 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { ANALYZER_SYSTEM_PROMPT } from '@/prompts/analyzer_system'
 
-const client = new Anthropic()
+let _client: Anthropic | null = null
+function getClient(): Anthropic {
+  if (!_client) _client = new Anthropic()
+  return _client
+}
 
 // ─── 입력 타입 ────────────────────────────────────────────────────────────────
 
@@ -125,7 +129,7 @@ async function callWithRetry(
   retriesLeft: number
 ): Promise<AnalysisResult> {
   try {
-    const response = await client.messages.create({
+    const response = await getClient().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
       system: ANALYZER_SYSTEM_PROMPT,
