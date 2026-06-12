@@ -27,41 +27,68 @@ async function getOrGenerateReport(
   supabase: Awaited<ReturnType<typeof createClient>>,
   coupleId: string,
   myId: string
-) {
+): Promise<{ analysis: AnalysisResult; fromCache: boolean } | null> {
   const today = new Date().toISOString().split('T')[0]
 
-  const { data: existing } = await supabase
-    .from('daily_reports').select('analysis_json, quest_json')
-    .eq('couple_id', coupleId).eq('date', today).single()
+  // 1) 캐시된 리포트 확인
+  try {
+    const { data: existing } = await supabase
+      .from('daily_reports').select('analysis_json')
+      .eq('couple_id', coupleId).eq('date', today).single()
+    if (existing?.analysis_json) {
+      return { analysis: existing.analysis_json as AnalysisResult, fromCache: true }
+    }
+  } catch { /* 없으면 신규 생성 */ }
 
-  if (existing?.analysis_json) {
-    return { analysis: existing.analysis_json as AnalysisResult }
+  // 2) 두 사람 일기 조회
+  let diaries: any[] | null = null
+  try {
+    const { data } = await supabase.rpc('get_couple_diaries', {
+      couple_id_input: coupleId, date_input: today,
+    })
+    diaries = data
+  } catch (e) {
+    console.error('[report] get_couple_diaries failed:', e)
+    return null
   }
-
-  const { data: diaries } = await supabase.rpc('get_couple_diaries', {
-    couple_id_input: coupleId, date_input: today,
-  })
   if (!diaries || diaries.length < 2) return null
 
-  const myDiary   = diaries.find((d: any) => d.user_id === myId)
+  const myDiary      = diaries.find((d: any) => d.user_id === myId)
   const partnerDiary = diaries.find((d: any) => d.user_id !== myId)
   if (!myDiary || !partnerDiary) return null
 
-  // 14일 패턴 히스토리 로드
-  const patterns = await getCouplePatterns(coupleId)
-  const history  = patterns.recentHistory
+  // 3) 14일 히스토리 (실패해도 빈 배열로 대체)
+  let history: Awaited<ReturnType<typeof getCouplePatterns>>['recentHistory'] = []
+  try {
+    const patterns = await getCouplePatterns(coupleId)
+    history = patterns.recentHistory
+  } catch (e) {
+    console.error('[report] getCouplePatterns failed, using empty history:', e)
+  }
 
-  const analysis = await analyzeCoupleDiary(myDiary, partnerDiary, history)
+  // 4) AI 분석
+  let analysis: AnalysisResult
+  try {
+    analysis = await analyzeCoupleDiary(myDiary, partnerDiary, history)
+  } catch (e) {
+    console.error('[report] analyzeCoupleDiary failed:', e)
+    return null
+  }
 
-  await supabase.rpc('save_daily_report', {
-    couple_id_input: coupleId,
-    date_input: today,
-    analysis: analysis,
-    quest: analysis.todayQuest,
-    monster: analysis.todayMonster,
-  })
+  // 5) 저장 (실패해도 분석 결과는 반환)
+  try {
+    await supabase.rpc('save_daily_report', {
+      couple_id_input: coupleId,
+      date_input: today,
+      analysis: analysis,
+      quest: analysis.todayQuest,
+      monster: analysis.todayMonster,
+    })
+  } catch (e) {
+    console.error('[report] save_daily_report failed:', e)
+  }
 
-  return { analysis }
+  return { analysis, fromCache: false }
 }
 
 export default async function TodayPage() {
@@ -149,9 +176,29 @@ export default async function TodayPage() {
 
   if (!report) {
     return (
-      <DeviceFrame relHealth={relHealth} xp={couple?.exp ?? 0} streak={streak ?? 0}>
-        <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-2)', fontSize: 13, lineHeight: 1.7, paddingTop: 60 }}>
-          리포트를 불러오는 중 오류가 발생했어요.<br />잠시 후 다시 시도해주세요.
+      <DeviceFrame relHealth={relHealth} xp={couple?.exp ?? 0} streak={streak ?? 0} nickname={profile?.nickname ?? ''}>
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center', paddingTop: 40 }}>
+          <div style={{ animation: 'float-y 2s ease-in-out infinite' }}>
+            <svg viewBox="0 0 36 32" width={48}>
+              <path d="M18 30 C 4 22, 0 14, 0 9 C 0 3, 4 0, 9 0 C 13 0, 16 2, 18 5 C 20 2, 23 0, 27 0 C 32 0, 36 3, 36 9 C 36 14, 32 22, 18 30 Z" fill="#c8dcff" stroke="#a0bfff" strokeWidth="1.2" />
+            </svg>
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>보고서를 만드는 중이에요</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.7 }}>
+            AI가 두 사람의 일기를 분석하고 있어요.<br />
+            페이지를 새로고침하면 확인할 수 있어요.
+          </div>
+          <a href="/today" style={{
+            display: 'inline-block', marginTop: 4,
+            background: 'linear-gradient(180deg, #ffc8de, #ff9ec5)',
+            color: '#fff', border: '2px solid #ee83b1', borderRadius: 999,
+            boxShadow: '0 0 0 2.5px #fff, 0 0 0 4px #ee83b1',
+            padding: '10px 24px', fontSize: 14,
+            fontFamily: 'var(--font-round)', fontWeight: 700, textDecoration: 'none',
+            textShadow: '1px 1px 0 rgba(238,131,177,.5)',
+          }}>
+            ♡ 새로고침
+          </a>
         </div>
       </DeviceFrame>
     )
