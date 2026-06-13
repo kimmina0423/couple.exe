@@ -86,6 +86,9 @@ async function getOrGenerateReport(
     )
   }
 
+  // userA = 이 보고서를 처음 생성한 유저. 뷰어가 A/B 중 누구인지 판별용.
+  ;(analysis as any).userAId = myId
+
   // 3) 저장 — fire-and-forget
   Promise.resolve(supabase.rpc('save_daily_report', {
     couple_id_input: coupleId,
@@ -224,11 +227,18 @@ export default async function TodayPage() {
   const { analysis } = report
   const risk = RISK_CONFIG[analysis.riskLevel ?? 'GREEN']
 
-  // 감정 키워드: primaryEmotions (새 스키마) 또는 구버전 fallback
-  const myEmotions = analysis.userA?.primaryEmotions
+  // 보고서 생성자(A)와 현재 뷰어가 같은지 판별
+  const isUserA = (analysis as any).userAId === user.id
+
+  // 감정 키워드: 내가 A면 userA=나/userB=파트너, B면 반대
+  const myEmotions = (isUserA
+    ? analysis.userA?.primaryEmotions
+    : analysis.userB?.primaryEmotions)
     ?? (analysis as any).emotionKeywords?.a
     ?? []
-  const partnerEmotions = analysis.userB?.primaryEmotions
+  const partnerEmotions = (isUserA
+    ? analysis.userB?.primaryEmotions
+    : analysis.userA?.primaryEmotions)
     ?? (analysis as any).emotionKeywords?.b
     ?? []
 
@@ -252,8 +262,12 @@ export default async function TodayPage() {
     ?? (analysis as any).quest?.theory
     ?? ''
 
-  // 정서 번역문
-  const translationForMe = analysis.translationForA ?? null
+  // 정서 번역: 나는 파트너의 속마음을 봐야 함
+  // A가 보면 translationForA (= B의 속마음을 A에게 설명한 것)
+  // B가 보면 translationForB (= A의 속마음을 B에게 설명한 것)
+  const translationForMe = isUserA
+    ? (analysis.translationForA ?? null)
+    : (analysis.translationForB ?? analysis.translationForA ?? null)
 
   return (
     <DeviceFrame relHealth={relHealth} xp={couple?.exp ?? 0} streak={streak ?? 0} nickname={profile?.nickname ?? ''}>
