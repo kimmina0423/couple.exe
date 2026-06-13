@@ -109,12 +109,16 @@ export default async function TodayPage() {
     { data: couple },
     { data: questDone },
     { count: streak },
+    { data: pastReports },
   ] = await Promise.all([
     supabase.from('diary_entries').select('id').eq('user_id', user.id).eq('date', today).single(),
     supabase.rpc('count_couple_diaries', { couple_id_input: coupleId, date_input: today }),
     supabase.from('couples').select('level, exp').eq('id', coupleId).single(),
     supabase.from('quest_completions').select('id').eq('couple_id', coupleId).eq('date', today).single(),
     supabase.from('quest_completions').select('id', { count: 'exact', head: true }).eq('couple_id', coupleId),
+    supabase.from('daily_reports').select('date, analysis_json->riskLevel')
+      .eq('couple_id', coupleId).neq('date', today)
+      .order('date', { ascending: false }).limit(7),
   ])
 
   const partnerWrote = (diaryCount ?? 0) >= 2
@@ -362,6 +366,30 @@ export default async function TodayPage() {
                 <span className="screen" style={{ fontSize: 18, color: 'var(--p-600)' }}>{couple.exp} XP</span>
               </div>
               <PixelBar value={couple.exp} max={xpForNext} color="var(--lavender)" />
+            </div>
+          </div>
+        )}
+
+        {/* 지난 보고서 */}
+        {pastReports && pastReports.length > 0 && (
+          <div style={cardStyle}>
+            <div style={{ background: 'linear-gradient(90deg, #ffd6e8, #ffb6d0)', color: 'var(--p-700)', padding: '6px 12px', borderBottom: '1.5px dashed var(--p-500)', fontSize: 12, fontWeight: 700, textShadow: '1px 1px 0 #fff' }}>
+              ♡ 지난 보고서
+            </div>
+            <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {pastReports.map((r: any) => {
+                const d = new Date(r.date + 'T00:00:00')
+                const label = `${d.getMonth() + 1}월 ${d.getDate()}일`
+                const riskDot: Record<string, string> = { GREEN: '#7dcfa8', YELLOW: '#f5c842', RED: '#e74c3c' }
+                const dot = riskDot[r.riskLevel as string] ?? '#ccc'
+                return (
+                  <Link key={r.date} href={`/report/${r.date}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'linear-gradient(180deg,#fff,var(--p-100))', border: '1.5px solid var(--p-300)', borderRadius: 10, boxShadow: '0 0 0 2px #fff, 0 0 0 3px var(--p-300)', textDecoration: 'none' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, display: 'inline-block', flexShrink: 0, boxShadow: `0 0 4px ${dot}` }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>{label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>다시보기 →</span>
+                  </Link>
+                )
+              })}
             </div>
           </div>
         )}
