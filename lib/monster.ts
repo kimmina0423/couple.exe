@@ -126,6 +126,15 @@ export async function syncMonsters(supabase: SupabaseClient, coupleId: string) {
     if (hasCriticism || a.horsemen?.criticism || a.horsemen?.contempt) criticismCount++
     if (hasAbandonmentLonging || (hasCycle && isPursuerWithdrawer)) anxietyCount++
     if (isMutualEmpty) emptinessCount++
+
+    // todayMonster 필드 직접 반영 (mock 분석 포함 모든 경로 커버)
+    const monsterName: string = a.todayMonster?.name ?? ''
+    if (monsterName.includes('침묵')) silenceCount++
+    else if (monsterName.includes('비난')) criticismCount++
+    else if (monsterName.includes('불안')) anxietyCount++
+    else if (monsterName.includes('공허')) emptinessCount++
+    // riskLevel RED/YELLOW인데 몬스터 이름 없을 때 기본 등장
+    else if (!monsterName && (a.riskLevel === 'RED' || a.riskLevel === 'YELLOW')) silenceCount++
   }
 
   await Promise.all([
